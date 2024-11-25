@@ -96,7 +96,7 @@ PUBLIC_FILE_CHANNEL = environ.get('PUBLIC_FILE_CHANNEL', '') # Public Channel Us
 # Links
 GRP_LNK = environ.get('GRP_LNK', 'https://t.me/moviebazaar7')
 CHNL_LNK = environ.get('CHNL_LNK', 'https://t.me/New_movie_bazaar7')
-SUPPORT_CHAT = environ.get('SUPPORT_CHAT', 'vj_bot_disscussion') # Support Chat Link Without https:// or @
+SUPPORT_CHAT = environ.get('SUPPORT_CHAT', 'Downlodmovies_7') # Support Chat Link Without https:// or @
 
 
 # True Or False
