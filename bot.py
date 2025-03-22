@@ -71,7 +71,7 @@ async def start():
         print("Make Your Bot Admin In Log Channel With Full Rights")
     for ch in CHANNELS:
         try:
-            k = TechVJBot.send_message(chat_id=ch, text="**Bot Restarted**")
+            k = await TechVJBot.send_message(chat_id=ch, text="**Bot Restarted**")
             await k.delete()
         except:
             print("Make Your Bot Admin In File Channels With Full Rights")
