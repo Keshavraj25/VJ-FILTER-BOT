@@ -1,99 +1,194 @@
-# Don't Remove Credit @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot @Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+import os
+import logging
+import sys
+from datetime import datetime
 
-# Clone Code Credit : YT - @Tech_VJ / TG - @VJ_Bots / GitHub - @VJBots
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-import sys, glob, importlib, logging, logging.config, pytz, asyncio
-from pathlib import Path
+# Handle missing packages gracefully
+try:
+    from flask import Flask, render_template, jsonify, request, flash, redirect, url_for, session
+    from flask_sqlalchemy import SQLAlchemy
+except ImportError:
+    logger.error("Flask or SQLAlchemy is not installed. Please install them with 'pip install flask flask-sqlalchemy'")
+    sys.exit(1)
 
-# Get logging configurations
-logging.config.fileConfig('logging.conf')
-logging.getLogger().setLevel(logging.INFO)
-logging.getLogger("pyrogram").setLevel(logging.ERROR)
-logging.getLogger("cinemagoer").setLevel(logging.ERROR)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    logger.warning("python-dotenv is not installed. Using environment variables directly.")
 
-from pyrogram import Client, idle
-from database.users_chats_db import db
-from info import *
-from utils import temp
-from typing import Union, Optional, AsyncGenerator
-from Script import script 
-from datetime import date, datetime 
-from aiohttp import web
-from plugins import web_server
-from plugins.clone import restart_bots
+# Initialize Flask app
+app = Flask(__name__)
+app.secret_key = os.environ.get("SESSION_SECRET", "dev_secret_key")
 
-from TechVJ.bot import TechVJBot
-from TechVJ.util.keepalive import ping_server
-from TechVJ.bot.clients import initialize_clients
+# Configure the PostgreSQL database
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_recycle': 280}
 
-ppath = "plugins/*.py"
-files = glob.glob(ppath)
-TechVJBot.start()
-loop = asyncio.get_event_loop()
+# Initialize the database
+db = SQLAlchemy(app)
 
+# Define models
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    telegram_id = db.Column(db.String(50), unique=True, nullable=False)
+    username = db.Column(db.String(100))
+    first_name = db.Column(db.String(100))
+    last_name = db.Column(db.String(100))
+    is_banned = db.Column(db.Boolean, default=False)
+    joined_date = db.Column(db.DateTime, default=datetime.utcnow)
+    ban_reason = db.Column(db.String(255))
 
-async def start():
-    print('\n')
-    print('Initalizing Your Bot')
-    bot_info = await TechVJBot.get_me()
-    await initialize_clients()
-    for name in files:
-        with open(name) as a:
-            patt = Path(a.name)
-            plugin_name = patt.stem.replace(".py", "")
-            plugins_dir = Path(f"plugins/{plugin_name}.py")
-            import_path = "plugins.{}".format(plugin_name)
-            spec = importlib.util.spec_from_file_location(import_path, plugins_dir)
-            load = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(load)
-            sys.modules["plugins." + plugin_name] = load
-            print("Tech VJ Imported => " + plugin_name)
-    if ON_HEROKU:
-        asyncio.create_task(ping_server())
-    b_users, b_chats = await db.get_banned()
-    temp.BANNED_USERS = b_users
-    temp.BANNED_CHATS = b_chats
-    me = await TechVJBot.get_me()
-    temp.BOT = TechVJBot
-    temp.ME = me.id
-    temp.U_NAME = me.username
-    temp.B_NAME = me.first_name
-    logging.info(script.LOGO)
-    tz = pytz.timezone('Asia/Kolkata')
-    today = date.today()
-    now = datetime.now(tz)
-    time = now.strftime("%H:%M:%S %p")
+class Chat(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    chat_id = db.Column(db.String(50), unique=True, nullable=False)
+    title = db.Column(db.String(255))
+    is_banned = db.Column(db.Boolean, default=False)
+    joined_date = db.Column(db.DateTime, default=datetime.utcnow)
+    ban_reason = db.Column(db.String(255))
+
+class File(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    file_id = db.Column(db.String(255), unique=True, nullable=False)
+    file_name = db.Column(db.String(255))
+    file_size = db.Column(db.BigInteger)
+    file_type = db.Column(db.String(50))
+    caption = db.Column(db.Text)
+    added_date = db.Column(db.DateTime, default=datetime.utcnow)
+    
+# Create the database tables
+try:
+    with app.app_context():
+        db.create_all()
+        logger.info("Database tables created successfully")
+except Exception as e:
+    logger.error(f"Error creating database tables: {e}")
+    logger.info("The application will continue but database functionality may be limited")
+
+# Import configuration with graceful fallbacks
+try:
+    from info import API_ID, API_HASH, BOT_TOKEN, DATABASE_URI
+except ImportError:
+    logger.warning("Could not import from info.py. Using environment variables directly.")
+    API_ID = os.environ.get('API_ID')
+    API_HASH = os.environ.get('API_HASH')
+    BOT_TOKEN = os.environ.get('BOT_TOKEN')
+    DATABASE_URI = os.environ.get('DATABASE_URI')
+
+@app.route('/')
+def index():
+    """Main index route - shows the status page"""
+    return render_template('index.html')
+
+@app.route('/api/status')
+def status():
+    """API endpoint for checking bot status"""
+    # Check if required configurations are available
+    configs = {
+        "API_ID": bool(API_ID),
+        "API_HASH": bool(API_HASH) and len(API_HASH) > 0,
+        "BOT_TOKEN": bool(BOT_TOKEN) and len(BOT_TOKEN) > 0,
+        "DATABASE_URI": bool(DATABASE_URI) and len(DATABASE_URI) > 0
+    }
+    
+    missing_configs = [key for key, value in configs.items() if not value]
+    
+    # Check database status
+    db_status = "connected"
     try:
-        await TechVJBot.send_message(chat_id=LOG_CHANNEL, text=script.RESTART_TXT.format(today, time))
-    except:
-        print("Make Your Bot Admin In Log Channel With Full Rights")
-    for ch in CHANNELS:
-        try:
-            k = TechVJBot.send_message(chat_id=ch, text="**Bot Restarted**")
-            await k.delete()
-        except:
-            print("Make Your Bot Admin In File Channels With Full Rights")
+        # Simple database query to check connection
+        db.session.execute(db.select(User).limit(1))
+    except Exception as e:
+        logger.error(f"Database connection error: {e}")
+        db_status = f"error: {str(e)}"
+    
+    # Get basic stats
+    stats = {
+        "users_count": 0,
+        "chats_count": 0,
+        "files_count": 0
+    }
+    
     try:
-        k = await TechVJBot.send_message(chat_id=AUTH_CHANNEL, text="**Bot Restarted**")
-        await k.delete()
-    except:
-        print("Make Your Bot Admin In Force Subscribe Channel With Full Rights")
-    if CLONE_MODE == True:
-        print("Restarting All Clone Bots.......")
-        await restart_bots()
-        print("Restarted All Clone Bots.")
-    app = web.AppRunner(await web_server())
-    await app.setup()
-    bind_address = "0.0.0.0"
-    await web.TCPSite(app, bind_address, PORT).start()
-    await idle()
+        stats["users_count"] = db.session.query(User).count()
+        stats["chats_count"] = db.session.query(Chat).count()
+        stats["files_count"] = db.session.query(File).count()
+    except Exception as e:
+        logger.error(f"Error getting stats: {e}")
+    
+    return jsonify({
+        "status": "running",
+        "server_type": "Flask",
+        "missing_configurations": missing_configs,
+        "bot_operational": len(missing_configs) == 0,
+        "database_status": db_status,
+        "stats": stats
+    })
 
+@app.route('/api/health')
+def health():
+    """Health check endpoint"""
+    return jsonify({"status": "healthy"})
 
-if __name__ == '__main__':
+@app.route('/api/telegram/webhook', methods=['POST'])
+def telegram_webhook():
+    """Endpoint for Telegram webhook (future implementation)"""
+    return jsonify({"status": "not_implemented"})
+
+@app.route('/dashboard')
+def dashboard():
+    """Admin dashboard"""
     try:
-        loop.run_until_complete(start())
-    except KeyboardInterrupt:
-        logging.info('Service Stopped Bye 👋')
+        users = User.query.all()
+        chats = Chat.query.all()
+        files = File.query.limit(100).all()
+        user_count = len(users)
+        chat_count = len(chats)
+        file_count = File.query.count()
+    except Exception as e:
+        logger.error(f"Error fetching data for dashboard: {e}")
+        users = []
+        chats = []
+        files = []
+        user_count = 0
+        chat_count = 0
+        file_count = 0
+        flash("Database connection error. Some features may be unavailable.", "danger")
+    
+    return render_template('dashboard.html', 
+                           users=users, 
+                           chats=chats, 
+                           files=files,
+                           user_count=user_count,
+                           chat_count=chat_count,
+                           file_count=file_count,
+                           db_error=True if len(users) == 0 and len(chats) == 0 and len(files) == 0 else False)
 
+@app.route('/api/get-started')
+def get_started():
+    """Information about getting started with the bot"""
+    return jsonify({
+        "status": "success",
+        "instructions": [
+            "Get API_ID and API_HASH from https://my.telegram.org",
+            "Create a bot with @BotFather to get BOT_TOKEN",
+            "Set up MongoDB and get DATABASE_URI",
+            "Set these as environment variables in your Replit settings"
+        ],
+        "help_link": "https://github.com/VJBots/VJ-FILTER-BOT"
+    })
+
+if __name__ == "__main__":
+    # Create templates directory if it doesn't exist
+    os.makedirs('templates', exist_ok=True)
+    
+    # Create the static directory if it doesn't exist
+    os.makedirs('static', exist_ok=True)
+    
+    logger.info("Starting Flask web server on port 5000")
+    app.run(host="0.0.0.0", port=5000, debug=True)
